@@ -1,61 +1,55 @@
-#!/usr/bin/env python3
-"""World News in One Image - 26 November 2026.
+"""news-image-20261126 -- World News in One Image (2026-11-26).
 
-Deterministic infographic generator for the make.fun competition
-news-image-20261126. Fixed fonts, fixed geometry, fixed text.
-No randomness, no current time, no network access.
-
-Run:  python3 main.py
-Output: /output/entry.png  (1200 x 1500)
+Deterministic rendering: fixed fonts, fixed geometry, fixed text.
+No randomness, no current time, no network.
+Running `python3 main.py` writes /output/entry.png.
 """
 
 import os
 
 from PIL import Image, ImageDraw, ImageFont
 
-# ---------------------------------------------------------------------------
-# Layout constants
-# ---------------------------------------------------------------------------
-CANVAS_W = 1200
-CANVAS_H = 1500
+# ---------------------------------------------------------------- constants
+CANVAS_WIDTH = 1200
+CANVAS_HEIGHT = 1500
+OUTPUT_DIR = "/output"
+OUTPUT_PATH = "/output/entry.png"
 
-BG_COLOR = (10, 25, 47)          # deep navy background
-ACCENT_COLOR = (255, 196, 0)     # bright gold divider / badges
-HEADER_TEXT = (255, 255, 255)
-SUBTITLE_TEXT = (180, 200, 220)
-CARD_COLOR = (255, 255, 255)
-CARD_TEXT = (20, 30, 45)
-CATEGORY_COLOR = (150, 40, 40)
-SOURCE_COLOR = (110, 120, 135)
-FOOTER_TEXT = (160, 180, 200)
+# Colours.
+BG_COLOR = (11, 30, 63)            # deep navy canvas
+ACCENT_COLOR = (255, 183, 3)       # bright amber divider / badge accent
+HEADER_TEXT = (255, 255, 255)      # white header text
+HEADER_MUTED = (178, 198, 220)     # muted header text
+CARD_COLOR = (255, 255, 255)       # white news cards
+TITLE_COLOR = (18, 28, 48)         # dark navy card titles
+CATEGORY_COLOR = (30, 90, 180)     # blue category labels
+SOURCE_COLOR = (100, 110, 125)     # grey source lines
+FOOTER_COLOR = (178, 198, 220)     # muted footer text
 
-MARGIN_X = 60
-CARD_W = CANVAS_W - 2 * MARGIN_X
-HEADER_H = 230            # header block height; first card starts below it
-CARD_H = 205              # fixed card height keeps all five cards uniform
-CARD_GAP = 22             # vertical gap between cards
-CARD_RADIUS = 24
-FOOTER_Y = 1435           # footer baseline; five cards end at 230+28+5*205+4*22 = 1371
+# Font files (system DejaVu, always present on this machine).
+# Bold is used for date/title/category/headline/badge; regular for
+# subtitle/source/footer. Paths are fixed so rendering is deterministic.
+FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
-# ---------------------------------------------------------------------------
-# Fonts (system DejaVu, fixed paths)
-# ---------------------------------------------------------------------------
-FONT_DIR = "/usr/share/fonts/truetype/dejavu"
-FONT_BOLD = os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")
-FONT_REGULAR = os.path.join(FONT_DIR, "DejaVuSans.ttf")
+# Layout. Five cards stack from CARDS_TOP: 240 + 5*200 + 4*18 = 1312,
+# leaving the footer at 1360 and a 140 px bottom margin inside 1500.
+MARGIN = 60
+HEADER_DATE_Y = 48
+HEADER_TITLE_Y = 92
+HEADER_SUBTITLE_Y = 152
+DIVIDER_Y = 208
+DIVIDER_HEIGHT = 4
+CARDS_TOP = 240
+CARD_HEIGHT = 200
+CARD_GAP = 18
+CARD_RADIUS = 20
+BADGE_DIAMETER = 56
+TEXT_X = 170
+FOOTER_Y = 1360
 
-DATE_FONT = ImageFont.truetype(FONT_BOLD, 30)
-TITLE_FONT = ImageFont.truetype(FONT_BOLD, 62)
-SUBTITLE_FONT = ImageFont.truetype(FONT_REGULAR, 30)
-CATEGORY_FONT = ImageFont.truetype(FONT_BOLD, 25)
-HEADLINE_FONT = ImageFont.truetype(FONT_BOLD, 33)
-SOURCE_FONT = ImageFont.truetype(FONT_REGULAR, 23)
-BADGE_FONT = ImageFont.truetype(FONT_BOLD, 30)
-FOOTER_FONT = ImageFont.truetype(FONT_REGULAR, 22)
-
-# ---------------------------------------------------------------------------
-# News of the day: (category, headline, source)
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------- news content
+# Each item: (category, headline, source).
 NEWS = [
     (
         "TRADE",
@@ -84,18 +78,28 @@ NEWS = [
     ),
 ]
 
-OUTPUT_DIR = "/output"
-OUTPUT_PATH = os.path.join(OUTPUT_DIR, "entry.png")
+FOOTER_TEXT = "Sources: Reuters, Agence France-Presse, Associated Press | 26 Nov 2026"
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-def wrap_text(draw, text, font, max_width, max_lines=2):
-    """Wrap text into at most max_lines lines fitting max_width.
+def load_fonts():
+    """Load the fixed DejaVu fonts at fixed sizes."""
+    return {
+        "date": ImageFont.truetype(FONT_BOLD, 28),
+        "title": ImageFont.truetype(FONT_BOLD, 46),
+        "subtitle": ImageFont.truetype(FONT_REGULAR, 26),
+        "category": ImageFont.truetype(FONT_BOLD, 22),
+        "headline": ImageFont.truetype(FONT_BOLD, 32),
+        "source": ImageFont.truetype(FONT_REGULAR, 22),
+        "badge": ImageFont.truetype(FONT_BOLD, 26),
+        "footer": ImageFont.truetype(FONT_REGULAR, 20),
+    }
 
-    Overflowing words on the last line are cut and replaced with an
-    ellipsis so the headline never exceeds two lines.
+
+def wrap_text(draw, text, font, max_width):
+    """Greedy word wrap: split `text` into lines no wider than `max_width`.
+
+    Returns a list of lines. Measured with the same font that will draw
+    them, so wrapping is exact and deterministic.
     """
     words = text.split()
     lines = []
@@ -108,138 +112,142 @@ def wrap_text(draw, text, font, max_width, max_lines=2):
             if current:
                 lines.append(current)
             current = word
-        if len(lines) == max_lines:
-            break
-    if current and len(lines) < max_lines:
+    if current:
         lines.append(current)
-    if len(lines) == max_lines and current and lines[-1] != current:
-        # Trim the last line so the ellipsis fits.
-        last = lines[-1]
-        while last and draw.textlength(last + "...", font=font) > max_width:
-            last = last.rsplit(" ", 1)[0] if " " in last else last[:-1]
-        lines[-1] = last + "..."
     return lines
 
 
-def draw_header(draw):
+def fit_two_lines(draw, text, font, max_width):
+    """Wrap `text` to at most two lines, truncating with an ellipsis."""
+    lines = wrap_text(draw, text, font, max_width)
+    if len(lines) <= 2:
+        return lines
+    lines = lines[:2]
+    # Trim the second line word by word until it fits with "..." appended.
+    while lines[1] and draw.textlength(lines[1] + "...", font=font) > max_width:
+        words = lines[1].split()
+        if len(words) <= 1:
+            break
+        lines[1] = " ".join(words[:-1])
+    lines[1] = lines[1] + "..."
+    return lines
+
+
+def draw_header(draw, fonts):
     """Top header: date, title, subtitle, bright divider line."""
     draw.text(
-        (MARGIN_X, 52),
+        (MARGIN, HEADER_DATE_Y),
         "26 NOVEMBER 2026",
-        font=DATE_FONT,
+        font=fonts["date"],
         fill=ACCENT_COLOR,
     )
     draw.text(
-        (MARGIN_X, 92),
+        (MARGIN, HEADER_TITLE_Y),
         "World News in One Image",
-        font=TITLE_FONT,
+        font=fonts["title"],
         fill=HEADER_TEXT,
     )
     draw.text(
-        (MARGIN_X, 168),
+        (MARGIN, HEADER_SUBTITLE_Y),
         "Five stories that defined the day",
-        font=SUBTITLE_FONT,
-        fill=SUBTITLE_TEXT,
+        font=fonts["subtitle"],
+        fill=HEADER_MUTED,
     )
-    draw.line(
-        [(MARGIN_X, 214), (CANVAS_W - MARGIN_X, 214)],
+    draw.rectangle(
+        [MARGIN, DIVIDER_Y, CANVAS_WIDTH - MARGIN, DIVIDER_Y + DIVIDER_HEIGHT],
         fill=ACCENT_COLOR,
-        width=4,
     )
 
 
-def draw_card(draw, index, category, headline, source, top):
-    """One white rounded card with badge, category, headline, source."""
-    left = MARGIN_X
-    right = CANVAS_W - MARGIN_X
-    bottom = top + CARD_H
+def draw_card(draw, fonts, index, item, y):
+    """One white rounded news card at vertical offset `y`."""
+    category, headline, source = item
+    x0 = MARGIN
+    x1 = CANVAS_WIDTH - MARGIN
+    y1 = y + CARD_HEIGHT
     draw.rounded_rectangle(
-        [left, top, right, bottom],
-        radius=CARD_RADIUS,
-        fill=CARD_COLOR,
+        [x0, y, x1, y1], radius=CARD_RADIUS, fill=CARD_COLOR
     )
 
-    # Number badge: gold circle at the left.
-    badge_cx = left + 52
-    badge_cy = top + 52
-    badge_r = 30
+    # Number badge: navy circle with a white number, left side.
+    badge_x0 = x0 + 30
+    badge_y0 = y + 32
     draw.ellipse(
-        [
-            badge_cx - badge_r,
-            badge_cy - badge_r,
-            badge_cx + badge_r,
-            badge_cy + badge_r,
-        ],
-        fill=ACCENT_COLOR,
+        [badge_x0, badge_y0, badge_x0 + BADGE_DIAMETER, badge_y0 + BADGE_DIAMETER],
+        fill=BG_COLOR,
     )
     number = str(index + 1)
-    num_w = draw.textlength(number, font=BADGE_FONT)
-    num_h = BADGE_FONT.size
+    num_w = draw.textlength(number, font=fonts["badge"])
+    num_h = fonts["badge"].size
     draw.text(
-        (badge_cx - num_w / 2, badge_cy - num_h / 2 - 2),
+        (
+            badge_x0 + (BADGE_DIAMETER - num_w) / 2,
+            badge_y0 + (BADGE_DIAMETER - num_h) / 2 - 2,
+        ),
         number,
-        font=BADGE_FONT,
-        fill=CARD_TEXT,
+        font=fonts["badge"],
+        fill=HEADER_TEXT,
     )
 
-    text_x = left + 104
-    text_w = right - text_x - 36
-
-    # Category label.
+    # Category label, top of the text block.
     draw.text(
-        (text_x, top + 26),
+        (TEXT_X, y + 30),
         category,
-        font=CATEGORY_FONT,
+        font=fonts["category"],
         fill=CATEGORY_COLOR,
     )
 
     # Headline, wrapped to at most two lines.
-    lines = wrap_text(draw, headline, HEADLINE_FONT, text_w, max_lines=2)
-    line_y = top + 62
+    max_text_width = x1 - 30 - TEXT_X
+    lines = fit_two_lines(draw, headline, fonts["headline"], max_text_width)
+    line_y = y + 66
     for line in lines:
-        draw.text((text_x, line_y), line, font=HEADLINE_FONT, fill=CARD_TEXT)
-        line_y += 42
+        draw.text(
+            (TEXT_X, line_y),
+            line,
+            font=fonts["headline"],
+            fill=TITLE_COLOR,
+        )
+        line_y += 40
 
-    # Source line pinned near the bottom of the card.
+    # Source line, bottom of the card.
     draw.text(
-        (text_x, bottom - 40),
+        (TEXT_X, y + CARD_HEIGHT - 38),
         "Source: " + source,
-        font=SOURCE_FONT,
+        font=fonts["source"],
         fill=SOURCE_COLOR,
     )
 
 
-def draw_footer(draw):
-    """Bottom footer with the source credits and date."""
-    footer = "Sources: Reuters, Agence France-Presse, Associated Press | 26 Nov 2026"
-    text_w = draw.textlength(footer, font=FOOTER_FONT)
+def draw_footer(draw, fonts):
+    """Bottom footer: aggregated source list and date."""
+    text_w = draw.textlength(FOOTER_TEXT, font=fonts["footer"])
     draw.text(
-        ((CANVAS_W - text_w) / 2, FOOTER_Y),
-        footer,
-        font=FOOTER_FONT,
-        fill=FOOTER_TEXT,
+        ((CANVAS_WIDTH - text_w) / 2, FOOTER_Y),
+        FOOTER_TEXT,
+        font=fonts["footer"],
+        fill=FOOTER_COLOR,
     )
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 def main():
-    image = Image.new("RGB", (CANVAS_W, CANVAS_H), BG_COLOR)
+    """Assemble the image and save it to /output/entry.png."""
+    image = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), BG_COLOR)
     draw = ImageDraw.Draw(image)
+    fonts = load_fonts()
 
-    draw_header(draw)
+    draw_header(draw, fonts)
 
-    top = HEADER_H + 28
-    for i, (category, headline, source) in enumerate(NEWS):
-        draw_card(draw, i, category, headline, source, top)
-        top += CARD_H + CARD_GAP
+    y = CARDS_TOP
+    for index, item in enumerate(NEWS):
+        draw_card(draw, fonts, index, item, y)
+        y += CARD_HEIGHT + CARD_GAP
 
-    draw_footer(draw)
+    draw_footer(draw, fonts)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    image.save(OUTPUT_PATH, format="PNG")
-    print("Saved {} ({}x{})".format(OUTPUT_PATH, CANVAS_W, CANVAS_H))
+    image.save(OUTPUT_PATH, "PNG")
+    print("Saved {} ({}x{})".format(OUTPUT_PATH, CANVAS_WIDTH, CANVAS_HEIGHT))
 
 
 if __name__ == "__main__":
